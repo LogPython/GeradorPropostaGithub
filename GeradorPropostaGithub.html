@@ -14,8 +14,9 @@
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <style>
-    /* Safe-area for iOS bottom bar */
     .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+    /* Evita serrilhado em impressão; ajuda o html2canvas */
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
@@ -96,7 +97,7 @@
       );
     }
 
-    // ===== Printable (for PDF) =====
+    // ===== Printable (para PDF) =====
     const Printable = forwardRef(function Printable({ proposta, calc }, ref) {
       const c = calc(proposta);
       const validade = new Date(proposta.emissao);
@@ -232,7 +233,7 @@
 
       return (
         React.createElement("div", { className: "fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-6" },
-          React.createElement("div", { className: "bg-white w-full sm:max-w-4xl sm:rounded-3xl sm:shadow-2xl max-h-[95vh] overflow-y-auto" },
+          React.createElement("div", { className: "bg-white w-full sm:max-w-4xl sm:rounded-3xl sm:shadow-2xl max-h:[95vh] max-h-[95vh] overflow-y-auto" },
             React.createElement("div", { className: "sticky top-0 bg-white border-b p-3 flex items-center gap-2" },
               React.createElement("button", { onClick: onClose, className: "px-3 py-2 rounded-xl border bg-white" }, "Fechar"),
               React.createElement("h2", { className: "font-semibold" }, "Editar Proposta"),
@@ -413,28 +414,36 @@
       }, [propostas, filtro]);
 
       const gerarPDF = async (p) => {
+        // Renderiza o Printable fora da tela e aguarda o layout estabilizar
         setVisualizando(p);
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 100)); // pequeno delay para fontes/imagens
         const el = printRef.current;
         if (!el) return;
+
+        // Captura
         const canvas = await html2canvas(el, {
           scale: 2,
           useCORS: true,
           backgroundColor: "#ffffff",
           windowWidth: 1200,
         });
-        const imgData = canvas.toDataURL("image/png");
+
+        // Monta PDF A4
         const pdf = new jsPDF("p", "mm", "a4");
         const pageWidth = pdf.internal.pageSize.getWidth();
         const pageHeight = pdf.internal.pageSize.getHeight();
+
+        const imgData = canvas.toDataURL("image/png");
         const imgWidth = pageWidth;
         const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        let y = 0;
+
         if (imgHeight <= pageHeight) {
           pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight, undefined, "FAST");
         } else {
+          // Paginação vertical
           let position = 0;
           const canvasPageHeight = Math.floor((canvas.width * pageHeight) / pageWidth);
+          let pageIndex = 0;
           while (position < canvas.height) {
             const pageCanvas = document.createElement("canvas");
             pageCanvas.width = canvas.width;
@@ -446,13 +455,17 @@
               0, 0, canvas.width, pageCanvas.height
             );
             const pageData = pageCanvas.toDataURL("image/png");
-            if (y > 0) pdf.addPage();
-            pdf.addImage(pageData, "PNG", 0, 0, pageWidth, (pageWidth * pageCanvas.height) / canvas.width, undefined, "FAST");
+            if (pageIndex > 0) pdf.addPage();
+            const h = (pageWidth * pageCanvas.height) / canvas.width;
+            pdf.addImage(pageData, "PNG", 0, 0, pageWidth, h, undefined, "FAST");
             position += pageCanvas.height;
-            y += 1;
+            pageIndex += 1;
           }
         }
+
         pdf.save(`Proposta_${p.numero}.pdf`);
+        // Opcional: limpar visualização após gerar
+        setVisualizando(null);
       };
 
       return (
@@ -517,8 +530,11 @@
               onSave: salvar,
               calc
             }),
-            React.createElement("div", { className: "hidden", "aria-hidden": true },
-              visualizando && React.createElement(Printable, { ref: printRef, proposta: visualizando, calc })
+            /* IMPORTANTE: renderização fora da tela em vez de hidden */
+            visualizando && React.createElement("div", {
+              style: { position: "absolute", top: "-9999px", left: "-9999px" }
+            },
+              React.createElement(Printable, { ref: printRef, proposta: visualizando, calc })
             )
           ),
           React.createElement("footer", { className: "fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur border-t border-gray-200 px-4 py-2 flex items-center justify-between sm:hidden safe-bottom" },
