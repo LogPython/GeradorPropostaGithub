@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>Propostas – PRADO IT</title>
+  <meta name="theme-color" content="#111827"/>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM UMD -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- html2canvas & jsPDF -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <style>
+    .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+    /* Evita serrilhado em impressão; ajuda o html2canvas */
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <div id="root"></div>
+
+  <script type="text/javascript">
+  (function() {
+    const { useEffect, useMemo, useRef, useState, forwardRef } = React;
+    const { createRoot } = ReactDOM;
+    const { jsPDF } = window.jspdf;
+
+    // ===== Helpers =====
+    const currency = (v) =>
+      new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+        Number.isFinite(v) ? v : 0
+      );
+
+    const uid = () => Math.random().toString(36).slice(2, 10);
+
+    const emptyProposal = () => ({
+      id: uid(),
+      numero: Date.now().toString().slice(-6),
+      titulo: "Proposta Comercial",
+      emissao: new Date().toISOString().slice(0, 10),
+      validadeDias: 7,
+      empresa: {
+        nome: "PRADO IT SOLUTIONS",
+        cnpj: "",
+        telefone: "",
+        email: "",
+        endereco: "",
+        logoDataUrl: "",
+      },
+      cliente: {
+        nome: "",
+        empresa: "",
+        telefone: "",
+        email: "",
+        endereco: "",
+      },
+      itens: [
+        { id: uid(), descricao: "Instalação de câmeras", qtd: 1, valor: 350 },
+      ],
+      observacoes:
+        "Valores em reais (R$). Prazo de pagamento a combinar. Materiais e serviços conforme especificado.",
+      desconto: 0,
+      impostosPercentual: 0,
+    });
+
+    const storageKey = "propostas_prado_it";
+
+    // ===== UI Primitives =====
+    function Input({ label, value, onChange, type = "text", step }) {
+      return (
+        React.createElement("label", { className: "grid gap-1 text-sm" },
+          React.createElement("span", { className: "text-gray-600" }, label),
+          React.createElement("input", {
+            className: "px-3 py-2 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900",
+            value: value ?? "",
+            onChange: (e) => onChange(e.target.value),
+            type, step
+          })
+        )
+      );
+    }
+
+    function Textarea({ label, value, onChange, rows = 3 }) {
+      return (
+        React.createElement("label", { className: "grid gap-1 text-sm" },
+          React.createElement("span", { className: "text-gray-600" }, label),
+          React.createElement("textarea", {
+            className: "px-3 py-2 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900",
+            value: value ?? "",
+            onChange: (e) => onChange(e.target.value),
+            rows
+          })
+        )
+      );
+    }
+
+    // ===== Printable (para PDF) =====
+    const Printable = forwardRef(function Printable({ proposta, calc }, ref) {
+      const c = calc(proposta);
+      const validade = new Date(proposta.emissao);
+      validade.setDate(validade.getDate() + Number(proposta.validadeDias || 0));
+
+      return (
+        React.createElement("div", { ref, className: "w-[794px] bg-white text-gray-900" },
+          React.createElement("div", { className: "p-6" },
+            React.createElement("div", { className: "flex items-center gap-4 border-b pb-4" },
+              proposta.empresa.logoDataUrl
+                ? React.createElement("img", { src: proposta.empresa.logoDataUrl, alt: "Logo", className: "h-14 w-14 object-contain" })
+                : React.createElement("div", { className: "h-14 w-14 rounded-2xl bg-gray-900 text-white flex items-center justify-center font-bold" }, "P"),
+              React.createElement("div", { className: "flex-1" },
+                React.createElement("h1", { className: "text-xl font-semibold" }, proposta.empresa.nome || "Sua Empresa"),
+                React.createElement("div", { className: "text-xs text-gray-600" },
+                  proposta.empresa.cnpj && React.createElement(React.Fragment, null, "CNPJ: ", proposta.empresa.cnpj, " · "),
+                  proposta.empresa.telefone && React.createElement(React.Fragment, null, "Tel: ", proposta.empresa.telefone, " · "),
+                  proposta.empresa.email && React.createElement(React.Fragment, null, proposta.empresa.email, " · "),
+                  proposta.empresa.endereco && React.createElement(React.Fragment, null, proposta.empresa.endereco)
+                )
+              ),
+              React.createElement("div", { className: "text-right" },
+                React.createElement("div", { className: "text-xs text-gray-500" }, "Nº"),
+                React.createElement("div", { className: "text-lg font-semibold" }, proposta.numero)
+              )
+            ),
+            React.createElement("div", { className: "grid grid-cols-2 gap-6 mt-4 text-sm" },
+              React.createElement("div", null,
+                React.createElement("div", { className: "text-gray-500" }, "Cliente"),
+                React.createElement("div", { className: "font-medium" }, proposta.cliente.nome || ""),
+                React.createElement("div", { className: "text-gray-700" }, proposta.cliente.empresa),
+                React.createElement("div", { className: "text-gray-700" }, proposta.cliente.email),
+                React.createElement("div", { className: "text-gray-700" }, proposta.cliente.telefone),
+                React.createElement("div", { className: "text-gray-700" }, proposta.cliente.endereco)
+              ),
+              React.createElement("div", { className: "text-right" },
+                React.createElement("div", null, "Emissão: ", new Date(proposta.emissao).toLocaleDateString("pt-BR")),
+                React.createElement("div", null, "Validade até: ", validade.toLocaleDateString("pt-BR"))
+              )
+            ),
+            React.createElement("h2", { className: "mt-6 text-lg font-semibold" }, proposta.titulo),
+            React.createElement("table", { className: "w-full text-sm mt-2 border-collapse" },
+              React.createElement("thead", null,
+                React.createElement("tr", { className: "bg-gray-100" },
+                  React.createElement("th", { className: "text-left p-2 border" }, "Descrição"),
+                  React.createElement("th", { className: "text-right p-2 border" }, "Qtd"),
+                  React.createElement("th", { className: "text-right p-2 border" }, "Valor (R$)"),
+                  React.createElement("th", { className: "text-right p-2 border" }, "Total")
+                )
+              ),
+              React.createElement("tbody", null,
+                proposta.itens.map((it) =>
+                  React.createElement("tr", { key: it.id },
+                    React.createElement("td", { className: "p-2 border align-top" }, it.descricao),
+                    React.createElement("td", { className: "p-2 border text-right align-top" }, it.qtd),
+                    React.createElement("td", { className: "p-2 border text-right align-top" }, currency(it.valor)),
+                    React.createElement("td", { className: "p-2 border text-right align-top" }, currency((Number(it.qtd) || 0) * (Number(it.valor) || 0)))
+                  )
+                )
+              )
+            ),
+            React.createElement("div", { className: "grid grid-cols-2 mt-4 gap-6" },
+              React.createElement("div", null,
+                React.createElement("div", { className: "text-sm" },
+                  React.createElement("div", { className: "font-medium mb-1" }, "Observações"),
+                  React.createElement("div", { className: "whitespace-pre-wrap text-gray-700" }, proposta.observacoes)
+                )
+              ),
+              React.createElement("div", { className: "ml-auto w-full" },
+                React.createElement("div", { className: "ml-auto w-full max-w-xs text-sm" },
+                  React.createElement("div", { className: "flex items-center justify-between py-1" },
+                    React.createElement("span", null, "Subtotal"),
+                    React.createElement("span", { className: "font-medium" }, currency(calc(proposta).subtotal))
+                  ),
+                  React.createElement("div", { className: "flex items-center justify-between py-1" },
+                    React.createElement("span", null, "Desconto"),
+                    React.createElement("span", { className: "font-medium" }, currency(proposta.desconto))
+                  ),
+                  React.createElement("div", { className: "flex items-center justify-between py-1" },
+                    React.createElement("span", null, "Impostos (", proposta.impostosPercentual || 0, "%)"),
+                    React.createElement("span", { className: "font-medium" }, currency(calc(proposta).impostos))
+                  ),
+                  React.createElement("div", { className: "border-t mt-2 pt-2 flex items-center justify-between" },
+                    React.createElement("span", { className: "font-semibold" }, "Total"),
+                    React.createElement("span", { className: "font-bold text-base" }, currency(calc(proposta).total))
+                  )
+                )
+              )
+            ),
+            React.createElement("div", { className: "mt-12 grid grid-cols-2 gap-6 text-sm" },
+              React.createElement("div", { className: "text-center" },
+                React.createElement("div", { className: "border-t w-64 mx-auto" }),
+                React.createElement("div", null, "Assinatura do Cliente")
+              ),
+              React.createElement("div", { className: "text-center" },
+                React.createElement("div", { className: "border-t w-64 mx-auto" }),
+                React.createElement("div", null, proposta.empresa.nome)
+              )
+            )
+          )
+        )
+      );
+    });
+
+    // ===== Editor =====
+    function EditorProposal({ proposta, onClose, onSave, calc }) {
+      const [p, setP] = useState(proposta);
+
+      const setField = (path, value) => {
+        setP((prev) => {
+          const next = { ...prev };
+          const segs = path.split(".");
+          let ref = next;
+          for (let i = 0; i < segs.length - 1; i++) ref = ref[segs[i]];
+          ref[segs.at(-1)] = value;
+          return next;
+        });
+      };
+
+      const addItem = () =>
+        setP((prev) => ({ ...prev, itens: [...prev.itens, { id: uid(), descricao: "", qtd: 1, valor: 0 }] }));
+      const remItem = (id) =>
+        setP((prev) => ({ ...prev, itens: prev.itens.filter((i) => i.id !== id) }));
+
+      const onLogoChange = (file) => {
+        if (!file) return setField("empresa.logoDataUrl", "");
+        const reader = new FileReader();
+        reader.onload = (e) => setField("empresa.logoDataUrl", e.target.result);
+        reader.readAsDataURL(file);
+      };
+
+      const c = calc(p);
+
+      return (
+        React.createElement("div", { className: "fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-6" },
+          React.createElement("div", { className: "bg-white w-full sm:max-w-4xl sm:rounded-3xl sm:shadow-2xl max-h:[95vh] max-h-[95vh] overflow-y-auto" },
+            React.createElement("div", { className: "sticky top-0 bg-white border-b p-3 flex items-center gap-2" },
+              React.createElement("button", { onClick: onClose, className: "px-3 py-2 rounded-xl border bg-white" }, "Fechar"),
+              React.createElement("h2", { className: "font-semibold" }, "Editar Proposta"),
+              React.createElement("div", { className: "ml-auto flex items-center gap-2" },
+                React.createElement("button", { onClick: () => onSave(p), className: "px-4 py-2 rounded-xl bg-gray-900 text-white font-medium" }, "Salvar")
+              )
+            ),
+            React.createElement("div", { className: "p-4 grid gap-6" },
+              React.createElement("section", { className: "grid gap-3" },
+                React.createElement("h3", { className: "font-semibold text-gray-900" }, "Sua empresa"),
+                React.createElement("div", { className: "grid sm:grid-cols-2 gap-3" },
+                  React.createElement(Input, { label: "Nome Fantasia", value: p.empresa.nome, onChange: (v) => setField("empresa.nome", v) }),
+                  React.createElement(Input, { label: "CNPJ", value: p.empresa.cnpj, onChange: (v) => setField("empresa.cnpj", v) }),
+                  React.createElement(Input, { label: "Telefone", value: p.empresa.telefone, onChange: (v) => setField("empresa.telefone", v) }),
+                  React.createElement(Input, { label: "E-mail", value: p.empresa.email, onChange: (v) => setField("empresa.email", v) }),
+                  React.createElement(Input, { label: "Endereço", value: p.empresa.endereco, onChange: (v) => setField("empresa.endereco", v) }),
+                ),
+                React.createElement("div", { className: "grid sm:grid-cols-2 gap-3 items-end" },
+                  React.createElement("div", null,
+                    React.createElement("label", { className: "text-sm text-gray-600" }, "Logotipo (opcional)"),
+                    React.createElement("input", {
+                      type: "file", accept: "image/*",
+                      onChange: (e) => onLogoChange(e.target.files && e.target.files[0]),
+                      className: "mt-1 block w-full text-sm"
+                    })
+                  ),
+                  p.empresa.logoDataUrl && React.createElement("div", { className: "border rounded-xl p-2 bg-gray-50 flex items-center justify-center h-24" },
+                    React.createElement("img", { src: p.empresa.logoDataUrl, alt: "Logo", className: "max-h-20 object-contain" })
+                  )
+                )
+              ),
+              React.createElement("section", { className: "grid gap-3" },
+                React.createElement("h3", { className: "font-semibold text-gray-900" }, "Cliente"),
+                React.createElement("div", { className: "grid sm:grid-cols-2 gap-3" },
+                  React.createElement(Input, { label: "Nome do responsável", value: p.cliente.nome, onChange: (v) => setField("cliente.nome", v) }),
+                  React.createElement(Input, { label: "Empresa", value: p.cliente.empresa, onChange: (v) => setField("cliente.empresa", v) }),
+                  React.createElement(Input, { label: "Telefone", value: p.cliente.telefone, onChange: (v) => setField("cliente.telefone", v) }),
+                  React.createElement(Input, { label: "E-mail", value: p.cliente.email, onChange: (v) => setField("cliente.email", v) }),
+                  React.createElement(Input, { label: "Endereço", value: p.cliente.endereco, onChange: (v) => setField("cliente.endereco", v) }),
+                )
+              ),
+              React.createElement("section", { className: "grid gap-3" },
+                React.createElement("h3", { className: "font-semibold text-gray-900" }, "Detalhes"),
+                React.createElement("div", { className: "grid sm:grid-cols-3 gap-3" },
+                  React.createElement(Input, { label: "Título", value: p.titulo, onChange: (v) => setField("titulo", v) }),
+                  React.createElement(Input, { label: "Número", value: p.numero, onChange: (v) => setField("numero", v) }),
+                  React.createElement(Input, { label: "Emissão", type: "date", value: p.emissao, onChange: (v) => setField("emissao", v) }),
+                  React.createElement(Input, { label: "Validade (dias)", type: "number", value: p.validadeDias, onChange: (v) => setField("validadeDias", Number(v)) }),
+                )
+              ),
+              React.createElement("section", { className: "grid gap-3" },
+                React.createElement("h3", { className: "font-semibold text-gray-900" }, "Itens"),
+                React.createElement("div", { className: "grid gap-2" },
+                  p.itens.map((it) =>
+                    React.createElement("div", { key: it.id, className: "grid grid-cols-12 gap-2 items-end" },
+                      React.createElement("div", { className: "col-span-12 sm:col-span-6" },
+                        React.createElement(Input, {
+                          label: "Descrição", value: it.descricao,
+                          onChange: (v) => setP((prev) => ({ ...prev, itens: prev.itens.map((x) => x.id === it.id ? { ...x, descricao: v } : x) }))
+                        })
+                      ),
+                      React.createElement("div", { className: "col-span-6 sm:col-span-2" },
+                        React.createElement(Input, {
+                          label: "Qtd", type: "number", value: it.qtd,
+                          onChange: (v) => setP((prev) => ({ ...prev, itens: prev.itens.map((x) => x.id === it.id ? { ...x, qtd: Number(v) } : x) }))
+                        })
+                      ),
+                      React.createElement("div", { className: "col-span-6 sm:col-span-3" },
+                        React.createElement(Input, {
+                          label: "Valor unitário (R$)", type: "number", step: "0.01", value: it.valor,
+                          onChange: (v) => setP((prev) => ({ ...prev, itens: prev.itens.map((x) => x.id === it.id ? { ...x, valor: Number(v) } : x) }))
+                        })
+                      ),
+                      React.createElement("div", { className: "col-span-12 sm:col-span-1 flex" },
+                        React.createElement("button", { onClick: () => remItem(it.id), className: "h-10 px-3 rounded-xl border text-red-600 w-full sm:w-auto" }, "Del")
+                      )
+                    )
+                  ),
+                  React.createElement("div", null,
+                    React.createElement("button", { onClick: addItem, className: "px-3 py-2 rounded-xl border" }, "+ Adicionar item")
+                  )
+                )
+              ),
+              React.createElement("section", { className: "grid sm:grid-cols-2 gap-3" },
+                React.createElement("div", { className: "grid gap-3" },
+                  React.createElement(Textarea, { label: "Observações / Condições", value: p.observacoes, onChange: (v) => setField("observacoes", v), rows: 4 })
+                ),
+                React.createElement("div", { className: "grid gap-2 bg-gray-50 border rounded-2xl p-3" },
+                  React.createElement("div", { className: "flex items-center justify-between text-sm" },
+                    React.createElement("span", null, "Subtotal"),
+                    React.createElement("span", { className: "font-medium" }, currency(c.subtotal))
+                  ),
+                  React.createElement("div", { className: "grid grid-cols-2 gap-2 items-end" },
+                    React.createElement(Input, { label: "Desconto (R$)", type: "number", step: "0.01", value: p.desconto, onChange: (v) => setField("desconto", Number(v)) }),
+                    React.createElement(Input, { label: "Impostos (%)", type: "number", step: "0.01", value: p.impostosPercentual, onChange: (v) => setField("impostosPercentual", Number(v)) })
+                  ),
+                  React.createElement("div", { className: "flex items-center justify-between text-sm" },
+                    React.createElement("span", null, "Base c/ desconto"),
+                    React.createElement("span", { className: "font-medium" }, currency(Math.max(0, c.subtotal - (Number(p.desconto) || 0))))
+                  ),
+                  React.createElement("div", { className: "flex items-center justify-between text-sm" },
+                    React.createElement("span", null, "Impostos"),
+                    React.createElement("span", { className: "font-medium" }, currency(c.impostos))
+                  ),
+                  React.createElement("div", { className: "flex items-center justify-between text-base border-t pt-2" },
+                    React.createElement("span", null, "Total"),
+                    React.createElement("span", { className: "font-semibold" }, currency(c.total))
+                  )
+                )
+              ),
+              React.createElement("div", { className: "flex flex-col sm:flex-row gap-2 sm:justify-end" },
+                React.createElement("button", { onClick: () => onSave(p), className: "px-4 py-2 rounded-xl bg-gray-900 text-white" }, "Salvar"),
+                React.createElement("button", { onClick: () => window.alert("As alterações precisam ser salvas antes de gerar o PDF."), className: "px-4 py-2 rounded-xl border" }, "PDF")
+              )
+            )
+          )
+        )
+      );
+    }
+
+    // ===== App =====
+    function App() {
+      const [propostas, setPropostas] = useState([]);
+      const [editing, setEditing] = useState(null);
+      const [filtro, setFiltro] = useState("");
+      const [visualizando, setVisualizando] = useState(null);
+      const printRef = useRef(null);
+
+      useEffect(() => {
+        try {
+          const raw = localStorage.getItem(storageKey);
+          if (raw) setPropostas(JSON.parse(raw));
+          else setPropostas([]);
+        } catch (e) { console.error(e); }
+      }, []);
+
+      useEffect(() => {
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(propostas));
+        } catch (e) { console.error(e); }
+      }, [propostas]);
+
+      const calc = (p) => {
+        const subtotal = p.itens.reduce((acc, it) => acc + (Number(it.qtd) || 0) * (Number(it.valor) || 0), 0);
+        const base = Math.max(0, subtotal - (Number(p.desconto) || 0));
+        const impostos = base * ((Number(p.impostosPercentual) || 0) / 100);
+        const total = base + impostos;
+        return { subtotal, base, impostos, total };
+      };
+
+      const salvar = (p) => {
+        setPropostas((prev) => {
+          const exists = prev.some((x) => x.id === p.id);
+          if (exists) return prev.map((x) => (x.id === p.id ? p : x));
+          return [p, ...prev];
+        });
+        setEditing(null);
+      };
+
+      const duplicar = (p) => {
+        const copia = JSON.parse(JSON.stringify(p));
+        copia.id = uid();
+        copia.numero = (parseInt(p.numero, 10) + 1).toString();
+        setPropostas((prev) => [copia, ...prev]);
+      };
+
+      const remover = (id) => setPropostas((prev) => prev.filter((x) => x.id !== id));
+
+      const filtered = useMemo(() => {
+        const f = filtro.toLowerCase();
+        if (!f) return propostas;
+        return propostas.filter((p) =>
+          [p.numero, p.titulo, p.empresa?.nome, p.cliente?.nome, p.cliente?.empresa, p.emissao]
+            .join(" ")
+            .toLowerCase()
+            .includes(f)
+        );
+      }, [propostas, filtro]);
+
+      const gerarPDF = async (p) => {
+        // Renderiza o Printable fora da tela e aguarda o layout estabilizar
+        setVisualizando(p);
+        await new Promise((r) => setTimeout(r, 100)); // pequeno delay para fontes/imagens
+        const el = printRef.current;
+        if (!el) return;
+
+        // Captura
+        const canvas = await html2canvas(el, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: "#ffffff",
+          windowWidth: 1200,
+        });
+
+        // Monta PDF A4
+        const pdf = new jsPDF("p", "mm", "a4");
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+
+        const imgData = canvas.toDataURL("image/png");
+        const imgWidth = pageWidth;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+        if (imgHeight <= pageHeight) {
+          pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight, undefined, "FAST");
+        } else {
+          // Paginação vertical
+          let position = 0;
+          const canvasPageHeight = Math.floor((canvas.width * pageHeight) / pageWidth);
+          let pageIndex = 0;
+          while (position < canvas.height) {
+            const pageCanvas = document.createElement("canvas");
+            pageCanvas.width = canvas.width;
+            pageCanvas.height = Math.min(canvasPageHeight, canvas.height - position);
+            const ctx = pageCanvas.getContext("2d");
+            ctx.drawImage(
+              canvas,
+              0, position, canvas.width, pageCanvas.height,
+              0, 0, canvas.width, pageCanvas.height
+            );
+            const pageData = pageCanvas.toDataURL("image/png");
+            if (pageIndex > 0) pdf.addPage();
+            const h = (pageWidth * pageCanvas.height) / canvas.width;
+            pdf.addImage(pageData, "PNG", 0, 0, pageWidth, h, undefined, "FAST");
+            position += pageCanvas.height;
+            pageIndex += 1;
+          }
+        }
+
+        pdf.save(`Proposta_${p.numero}.pdf`);
+        // Opcional: limpar visualização após gerar
+        setVisualizando(null);
+      };
+
+      return (
+        React.createElement("div", { className: "min-h-screen bg-gray-50 text-gray-900" },
+          React.createElement("header", { className: "sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-gray-200" },
+            React.createElement("div", { className: "max-w-5xl mx-auto px-4 py-3 flex items-center gap-3" },
+              React.createElement("div", { className: "flex items-center gap-2" },
+                React.createElement("span", { className: "inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-gray-900 text-white font-bold" }, "P"),
+                React.createElement("div", null,
+                  React.createElement("h1", { className: "text-lg font-semibold leading-tight" }, "Propostas – PRADO IT"),
+                  React.createElement("p", { className: "text-xs text-gray-500 -mt-0.5" }, "Crie, salve e gere PDF – 100% mobile")
+                )
+              ),
+              React.createElement("div", { className: "ml-auto flex items-center gap-2 w-full sm:w-auto" },
+                React.createElement("input", {
+                  placeholder: "Buscar por nº, cliente, título...",
+                  className: "w-full sm:w-80 px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900",
+                  value: filtro, onChange: (e) => setFiltro(e.target.value)
+                }),
+                React.createElement("button", {
+                  onClick: () => setEditing(emptyProposal()),
+                  className: "px-3 py-2 rounded-xl bg-gray-900 text-white font-medium shadow-sm active:scale-[0.98]"
+                }, "+ Nova")
+              )
+            )
+          ),
+          React.createElement("main", { className: "max-w-5xl mx-auto px-4 pb-24" },
+            React.createElement("section", { className: "mt-4 grid gap-3" },
+              filtered.length === 0 &&
+                React.createElement("div", { className: "text-center py-16 text-gray-500" },
+                  React.createElement("p", { className: "font-medium" }, "Nenhuma proposta ainda"),
+                  React.createElement("p", { className: "text-sm" }, "Toque em “Nova” para criar a primeira proposta.")
+                ),
+              filtered.map((p) => {
+                const c = calc(p);
+                return React.createElement("article", { key: p.id, className: "bg-white rounded-2xl shadow-sm border border-gray-200 p-4 flex flex-col sm:flex-row sm:items-center gap-4" },
+                  React.createElement("div", { className: "flex-1 min-w-0" },
+                    React.createElement("div", { className: "flex items-center gap-2 flex-wrap" },
+                      React.createElement("span", { className: "text-xs px-2 py-0.5 rounded-full bg-gray-100 border" }, "#", p.numero),
+                      React.createElement("h3", { className: "font-semibold truncate" }, p.titulo)
+                    ),
+                    React.createElement("p", { className: "text-sm text-gray-600 mt-1 truncate" },
+                      (p.cliente?.nome || "Sem cliente"), " · Emitida em ", new Date(p.emissao).toLocaleDateString("pt-BR")
+                    )
+                  ),
+                  React.createElement("div", { className: "text-right" },
+                    React.createElement("div", { className: "text-lg font-semibold" }, currency(c.total)),
+                    React.createElement("div", { className: "text-xs text-gray-500" }, "Itens: ", p.itens.length)
+                  ),
+                  React.createElement("div", { className: "flex gap-2 sm:ml-2" },
+                    React.createElement("button", { onClick: () => setEditing(p), className: "px-3 py-2 rounded-xl border bg-white hover:bg-gray-50" }, "Editar"),
+                    React.createElement("button", { onClick: () => gerarPDF(p), className: "px-3 py-2 rounded-xl bg-gray-900 text-white" }, "PDF"),
+                    React.createElement("button", { onClick: () => duplicar(p), className: "px-3 py-2 rounded-xl border" }, "Duplicar"),
+                    React.createElement("button", { onClick: () => remover(p.id), className: "px-3 py-2 rounded-xl border text-red-600" }, "Excluir")
+                  )
+                );
+              })
+            ),
+            editing && React.createElement(EditorProposal, {
+              proposta: editing,
+              onClose: () => setEditing(null),
+              onSave: salvar,
+              calc
+            }),
+            /* IMPORTANTE: renderização fora da tela em vez de hidden */
+            visualizando && React.createElement("div", {
+              style: { position: "absolute", top: "-9999px", left: "-9999px" }
+            },
+              React.createElement(Printable, { ref: printRef, proposta: visualizando, calc })
+            )
+          ),
+          React.createElement("footer", { className: "fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur border-t border-gray-200 px-4 py-2 flex items-center justify-between sm:hidden safe-bottom" },
+            React.createElement("span", { className: "text-xs text-gray-600" }, propostas.length, " proposta(s)"),
+            React.createElement("button", { onClick: () => setEditing(emptyProposal()), className: "px-4 py-2 rounded-xl bg-gray-900 text-white font-medium shadow" }, "+ Nova")
+          )
+        )
+      );
+    }
+
+    const root = createRoot(document.getElementById("root"));
+    root.render(React.createElement(App));
+  })();
+  </script>
+</body>
+</html>
